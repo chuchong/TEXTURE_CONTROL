@@ -1,4 +1,4 @@
-from diffusers import AutoencoderKL, UNet2DConditionModel, PNDMScheduler
+from diffusers import AutoencoderKL, UNet2DConditionModel, UNet2DModel, PNDMScheduler,  ControlNetModel
 from huggingface_hub import hf_hub_download
 from transformers import CLIPTextModel, CLIPTokenizer, logging
 
@@ -22,7 +22,85 @@ proxies={
 
 proxies= {}
 
-class StableDiffusion(nn.Module):
+stable_15 = "/data1/lisiyu/.cache/hub/models--runwayml--stable-diffusion-v1-5/snapshots/39593d5650112b4cc580433f6b0435385882d819"
+stable_inpaint = "/data1/lisiyu/.cache/hub/models--stabilityai--stable-diffusion-2-inpainting/snapshots/781cb3e2113c1932245692810716dfd27e355ab6"
+##TODO:infact inpainting is not supported now, according to https://github.com/Mikubill/sd-webui-controlnet/issues/54, https://github.com/lllyasviel/ControlNet/discussions/30
+control_stable = "/data1/lisiyu/.cache/hub/models--fusing--stable-diffusion-v1-5-controlnet-depth/snapshots/347e7ac1196634cde53ba3d7af507b1f877a147c"
+
+# if downloaded, you can set it locally as above
+# stable_15 = "runwayml/stable-diffusion-v1-5"
+# stable_inpaint ="runwayml/stable-diffusion-inpainting"
+# control_stable ="fusing/stable-diffusion-v1-5-controlnet-depth"
+
+class StableDiffusionControl(nn.Module):
+
+    def control_unet_inpaint_forward(self, inpaint_unet, latent_model_input_inpaint, prompt_embeds, control_depth, timestamp, controlnet_conditioning_scale=1.0):
+         
+        latent_model_input = latent_model_input_inpaint
+
+        dim = latent_model_input.shape[1]
+        control_input = latent_model_input[:, :dim // 2]
+
+
+        down_block_res_samples, mid_block_res_sample = self.controlnet(
+            control_input,
+            timestamp,
+            encoder_hidden_states=prompt_embeds,
+            controlnet_cond=control_depth,
+            return_dict=False,
+        )
+
+        down_block_res_samples = [
+            down_block_res_sample * controlnet_conditioning_scale
+            for down_block_res_sample in down_block_res_samples
+        ]
+        mid_block_res_sample *= controlnet_conditioning_scale
+
+        # predict the noise residual
+        noise_pred = inpaint_unet(
+            latent_model_input,
+            timestamp,
+            encoder_hidden_states=prompt_embeds,
+            # cross_attention_kwargs=cross_attention_kwargs,
+            down_block_additional_residuals=down_block_res_samples,
+            mid_block_additional_residual=mid_block_res_sample,
+        ).sample
+        return noise_pred
+
+
+    def control_unet_forward(self, unet, latents, prompt_embeds, control_depth, timestamp, controlnet_conditioning_scale=1.0):
+        """
+        borrow from
+        https://github.com/huggingface/diffusers/blob/main/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion_controlnet.py
+        """
+        
+        latent_model_input = latents
+
+        down_block_res_samples, mid_block_res_sample = self.controlnet(
+            latent_model_input,
+            timestamp,
+            encoder_hidden_states=prompt_embeds,
+            controlnet_cond=control_depth,
+            return_dict=False,
+        )
+
+        down_block_res_samples = [
+            down_block_res_sample * controlnet_conditioning_scale
+            for down_block_res_sample in down_block_res_samples
+        ]
+        mid_block_res_sample *= controlnet_conditioning_scale
+
+        # predict the noise residual
+        noise_pred = unet(
+            latent_model_input,
+            timestamp,
+            encoder_hidden_states=prompt_embeds,
+            # cross_attention_kwargs=cross_attention_kwargs,
+            down_block_additional_residuals=down_block_res_samples,
+            mid_block_additional_residual=mid_block_res_sample,
+        ).sample
+        return noise_pred
+
     def __init__(self, device, model_name='CompVis/stable-diffusion-v1-4', concept_name=None, concept_path=None,
                  latent_mode=True,  min_timestep=0.02, max_timestep=0.98, no_noise=False,
                  use_inpaint=False):
@@ -45,8 +123,9 @@ class StableDiffusion(nn.Module):
         self.max_step = int(self.num_train_timesteps * max_timestep)
         self.use_inpaint = use_inpaint
 
+        model_name = stable_15
         logger.info(f'loading stable diffusion with {model_name}...')
-
+        
         # 1. Load the autoencoder model which will be used to decode the latents into image space. 
         self.vae = AutoencoderKL.from_pretrained(model_name, subfolder="vae", use_auth_token=self.token, proxies=proxies).to(self.device)
 
@@ -61,10 +140,17 @@ class StableDiffusion(nn.Module):
         self.unet = UNet2DConditionModel.from_pretrained(model_name, subfolder="unet",  proxies=proxies, use_auth_token=self.token).to(
             self.device)
 
+        self.controlnet = ControlNetModel.from_pretrained(control_stable,torch_dtype=torch.float16,
+                                            proxies=proxies).to(
+            self.device).to(torch.float32)
+
         if self.use_inpaint:
-            self.inpaint_unet = UNet2DConditionModel.from_pretrained("stabilityai/stable-diffusion-2-inpainting",
+            # self.inpaint_unet = UNet2DConditionModel.from_pretrained("stabilityai/stable-diffusion-2-inpainting",
+            #                                                          subfolder="unet",  http=proxies, use_auth_token=self.token).to(
+            #     self.device)
+            self.inpaint_unet = UNet2DConditionModel.from_pretrained(stable_inpaint, torch_dtype=torch.float16,
                                                                      subfolder="unet",  http=proxies, use_auth_token=self.token).to(
-                self.device)
+                self.device).to(torch.float32)
 
 
         # 4. Create a scheduler for inference
@@ -138,39 +224,40 @@ class StableDiffusion(nn.Module):
         text_embeddings = torch.cat([uncond_embeddings, text_embeddings])
         return text_embeddings
 
-    def img2img_single_step(self, text_embeddings, prev_latents, depth_mask, step, guidance_scale=100):
-        # input is 1 3 512 512
-        # depth_mask is 1 1 512 512
-        # text_embeddings is 2 512
+    # not used in code 
+    # def img2img_single_step(self, text_embeddings, prev_latents, depth_mask, step, guidance_scale=100):
+    #     # input is 1 3 512 512
+    #     # depth_mask is 1 1 512 512
+    #     # text_embeddings is 2 512
 
-        def sample(prev_latents, depth_mask, step):
-            latent_model_input = torch.cat([prev_latents] * 2)
-            latent_model_input = self.scheduler.scale_model_input(latent_model_input,
-                                                                  step)  # NOTE: This does nothing
+    #     def sample(prev_latents, depth_mask, step):
+    #         latent_model_input = torch.cat([prev_latents] * 2)
+    #         latent_model_input = self.scheduler.scale_model_input(latent_model_input,
+    #                                                               step)  # NOTE: This does nothing
 
-            latent_model_input_depth = torch.cat([latent_model_input, depth_mask], dim=1)
-            # predict the noise residual
-            with torch.no_grad():
-                noise_pred = self.unet(latent_model_input_depth, step, encoder_hidden_states=text_embeddings)[
-                    'sample']
+    #         latent_model_input_depth = torch.cat([latent_model_input, depth_mask], dim=1)
+    #         # predict the noise residual
+    #         with torch.no_grad():
+    #             noise_pred = self.unet(latent_model_input_depth, step, encoder_hidden_states=text_embeddings)[
+    #                 'sample']
 
-            noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+    #         noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
 
-            noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
+    #         noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
 
-            # compute the previous noisy sample x_t -> x_t-1
-            latents = self.scheduler.step(noise_pred, step, prev_latents)['prev_sample']
+    #         # compute the previous noisy sample x_t -> x_t-1
+    #         latents = self.scheduler.step(noise_pred, step, prev_latents)['prev_sample']
 
-            return latents
+    #         return latents
 
-        depth_mask = F.interpolate(depth_mask, size=(64, 64), mode='bicubic',
-                                   align_corners=False)
+    #     depth_mask = F.interpolate(depth_mask, size=(64, 64), mode='bicubic',
+    #                                align_corners=False)
 
-        depth_mask = 2.0 * (depth_mask - depth_mask.min()) / (depth_mask.max() - depth_mask.min()) - 1.0
+    #     depth_mask = 2.0 * (depth_mask - depth_mask.min()) / (depth_mask.max() - depth_mask.min()) - 1.0
 
-        with torch.no_grad():
-            target_latents = sample(prev_latents, depth_mask, step=step)
-        return target_latents
+    #     with torch.no_grad():
+    #         target_latents = sample(prev_latents, depth_mask, step=step)
+    #     return target_latents
 
     def img2img_step(self, text_embeddings, inputs, depth_mask, guidance_scale=100, strength=0.5,
                      num_inference_steps=50, update_mask=None, latent_mode=False, check_mask=None,
@@ -188,7 +275,7 @@ class StableDiffusion(nn.Module):
                 # Last chanel is reserved for depth
                 latents = torch.randn(
                     (
-                        text_embeddings.shape[0] // 2, self.unet.in_channels - 1, depth_mask.shape[2],
+                        text_embeddings.shape[0] // 2, self.unet.in_channels, depth_mask.shape[2],
                         depth_mask.shape[3]),
                     device=self.device)
                 timesteps = self.scheduler.timesteps
@@ -203,7 +290,7 @@ class StableDiffusion(nn.Module):
                     # NOTE: I think we might want to use same noise?
                     gt_latents = latents
                     latents = torch.randn(
-                        (text_embeddings.shape[0] // 2, self.unet.in_channels - 1, depth_mask.shape[2],
+                        (text_embeddings.shape[0] // 2, self.unet.in_channels, depth_mask.shape[2],
                          depth_mask.shape[3]),
                         device=self.device)
                 else:
@@ -236,16 +323,22 @@ class StableDiffusion(nn.Module):
                         latent_image = torch.cat([masked_latents] * 2)
                         latent_model_input_inpaint = torch.cat([latent_model_input, latent_mask, latent_image], dim=1)
                         with torch.no_grad():
-                            noise_pred_inpaint = \
-                                self.inpaint_unet(latent_model_input_inpaint, t, encoder_hidden_states=text_embeddings)[
-                                    'sample']
-                            noise_pred = noise_pred_inpaint
+                            
+                            noise_pred = self.control_unet_forward(self.unet, latent_model_input, text_embeddings, depth_map, t)
+                            # noise_pred = self.control_unet_inpaint_forward(self.inpaint_unet, latent_model_input_inpaint, text_embeddings, depth_map, t)['sample']
+
+                            # noise_pred_inpaint = \
+                            #     self.inpaint_unet(latent_model_input_inpaint, t, encoder_hidden_states=text_embeddings)[
+                            #         'sample']
+                            # noise_pred = noise_pred_inpaint
                     else:
-                        latent_model_input_depth = torch.cat([latent_model_input, depth_mask], dim=1)
+                        # latent_model_input_depth = torch.cat([latent_model_input, depth_mask], dim=1)
                         # predict the noise residual
                         with torch.no_grad():
-                            noise_pred = self.unet(latent_model_input_depth, t, encoder_hidden_states=text_embeddings)[
-                                'sample']
+                            
+                            noise_pred = self.control_unet_forward(self.unet, latent_model_input, text_embeddings, depth_map, t)
+                            # noise_pred = self.unet(latent_model_input_depth, t, encoder_hidden_states=text_embeddings)[
+                            #     'sample']
 
                     # perform guidance
                     noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
@@ -268,8 +361,17 @@ class StableDiffusion(nn.Module):
 
             return latents
 
+        ## TODO: it seems like depth_mask is not depth
+        logger.info('depth', depth_mask.max())
+        depth_map = depth_mask
+        depth_map = F.interpolate(depth_map, size=(512, 512), mode='bicubic',
+                                align_corners=False)
+        depth_map = depth_map.repeat(1,3,1,1)
+        depth_map = torch.clamp(depth_map, 0, 1)
         depth_mask = F.interpolate(depth_mask, size=(64, 64), mode='bicubic',
                                    align_corners=False)
+
+
         masked_latents = None
         if inputs is None:
             latents = None

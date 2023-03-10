@@ -19,6 +19,7 @@ from src import utils
 from src.configs.train_config import TrainConfig
 from src.models.textured_mesh import TexturedMeshModel
 from src.stable_diffusion_depth import StableDiffusion
+from src.stable_diffusion_depth_control import StableDiffusionControl
 from src.training.views_dataset import ViewsDataset, MultiviewDataset
 from src.utils import make_path, tensor2numpy
 
@@ -68,7 +69,7 @@ class TEXTure:
         return model
 
     def init_diffusion(self) -> Any:
-        diffusion_model = StableDiffusion(self.device, model_name=self.cfg.guide.diffusion_name,
+        diffusion_model = StableDiffusionControl(self.device, model_name=self.cfg.guide.diffusion_name,
                                           concept_name=self.cfg.guide.concept_name,
                                           concept_path=self.cfg.guide.concept_path,
                                           latent_mode=False,
