@@ -16,9 +16,9 @@ import cv2
 import numpy as np
 from PIL import Image
 
-proxies={
-'http':'http://166.111.81.116:8888',
-'https':'http://166.111.81.116:8888'}
+# proxies={
+# 'http':'http://166.111.81.116:8888',
+# 'https':'http://166.111.81.116:8888'}
 
 proxies= {}
 
@@ -46,6 +46,7 @@ class StableDiffusion(nn.Module):
         self.use_inpaint = use_inpaint
 
         logger.info(f'loading stable diffusion with {model_name}...')
+        
 
         # 1. Load the autoencoder model which will be used to decode the latents into image space. 
         self.vae = AutoencoderKL.from_pretrained(model_name, subfolder="vae", use_auth_token=self.token, proxies=proxies).to(self.device)

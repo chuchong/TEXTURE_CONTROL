@@ -16,21 +16,28 @@ import cv2
 import numpy as np
 from PIL import Image
 
-proxies={
-'http':'http://166.111.81.116:8888',
-'https':'http://166.111.81.116:8888'}
+# XXX: TO USE PROXY, you should set environ proxy first just as https://github.com/huggingface/autotrain-advanced/issues/63
+
+# proxies={
+# 'http':'http://166.111.81.116:8888',
+# 'https':'http://166.111.81.116:8888'}
 
 proxies= {}
 
-stable_15 = "/data1/lisiyu/.cache/hub/models--runwayml--stable-diffusion-v1-5/snapshots/39593d5650112b4cc580433f6b0435385882d819"
-stable_inpaint = "/data1/lisiyu/.cache/hub/models--stabilityai--stable-diffusion-2-inpainting/snapshots/781cb3e2113c1932245692810716dfd27e355ab6"
+
+# stable_15 = "/data1/lisiyu/.cache/hub/models--runwayml--stable-diffusion-v1-5/snapshots/39593d5650112b4cc580433f6b0435385882d819"
+# stable_inpaint = "/data1/lisiyu/.cache/hub/models--stabilityai--stable-diffusion-2-inpainting/snapshots/781cb3e2113c1932245692810716dfd27e355ab6"
 ##TODO:infact inpainting is not supported now, according to https://github.com/Mikubill/sd-webui-controlnet/issues/54, https://github.com/lllyasviel/ControlNet/discussions/30
-control_stable = "/data1/lisiyu/.cache/hub/models--fusing--stable-diffusion-v1-5-controlnet-depth/snapshots/347e7ac1196634cde53ba3d7af507b1f877a147c"
+# control_stable = "/data1/lisiyu/.cache/hub/models--fusing--stable-diffusion-v1-5-controlnet-depth/snapshots/347e7ac1196634cde53ba3d7af507b1f877a147c"
 
 # if downloaded, you can set it locally as above
-# stable_15 = "runwayml/stable-diffusion-v1-5"
-# stable_inpaint ="runwayml/stable-diffusion-inpainting"
-# control_stable ="fusing/stable-diffusion-v1-5-controlnet-depth"
+stable_15 = "runwayml/stable-diffusion-v1-5"
+stable_inpaint ="runwayml/stable-diffusion-inpainting"
+control_stable ="fusing/stable-diffusion-v1-5-controlnet-depth"
+
+# stable_15 = "/data1/lisiyu/chilloutmix_NiPrunedFp32Fix.safetensors"
+
+from safetensors.torch import load_file
 
 class StableDiffusionControl(nn.Module):
 
@@ -68,7 +75,7 @@ class StableDiffusionControl(nn.Module):
         return noise_pred
 
 
-    def control_unet_forward(self, unet, latents, prompt_embeds, control_depth, timestamp, controlnet_conditioning_scale=1.0):
+    def control_unet_forward(self, unet, latents, prompt_embeds, control_depth, timestamp, controlnet_conditioning_scale=0.8):
         """
         borrow from
         https://github.com/huggingface/diffusers/blob/main/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion_controlnet.py
@@ -137,8 +144,11 @@ class StableDiffusionControl(nn.Module):
         self.image_processor = None
 
         # 3. The UNet model for generating the latents.
-        self.unet = UNet2DConditionModel.from_pretrained(model_name, subfolder="unet",  proxies=proxies, use_auth_token=self.token).to(
+        # self.unet = UNet2DConditionModel.from_pretrained(model_name, subfolder="unet",  proxies=proxies, use_auth_token=self.token).to(
+        #     self.device)
+        self.unet = UNet2DConditionModel.from_pretrained(stable_15, subfolder="unet",  proxies=proxies, use_auth_token=self.token).to(
             self.device)
+
 
         self.controlnet = ControlNetModel.from_pretrained(control_stable,torch_dtype=torch.float16,
                                             proxies=proxies).to(

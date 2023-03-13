@@ -6,6 +6,7 @@ import torch
 from diffusers.utils import load_image
 
 depth_estimator = pipeline('depth-estimation')
+print(depth_estimator.max())
 
 image = load_image("https://huggingface.co/lllyasviel/sd-controlnet-depth/resolve/main/images/stormtrooper.png")
 
