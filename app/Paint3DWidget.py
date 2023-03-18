@@ -27,6 +27,7 @@ class Paint3DWidget(QOpenGLWidget):
         self.ruler_ = 1.0
         self.minD_ = 0.0
         self.maxD_ = 10.0
+        self.pos_ = np.array([0,0])
 
         self.offlineTask_ = None
         self.camera_ = Camera(camPos=(0,0,-5.0 * self.ruler_),fov=self.fov_,windowSize=self.imgSize_)
@@ -35,7 +36,7 @@ class Paint3DWidget(QOpenGLWidget):
         self.mouseLoc_ = np.array([0,0])
 
         self.scene_ = Scene()
-        self.scene_.AddShapeFromFile(ROOT + '/data/cube.obj', loadTexture=False)
+        self.scene_.AddShapeFromFile(ROOT + '/data/napolean/mesh.obj', loadTexture=True)
         self.scene_.AddShapeFromFile(ROOT + '/data/plane.obj', loadTexture=False)
 
         self.refScene_ = Scene()
@@ -81,8 +82,11 @@ class Paint3DWidget(QOpenGLWidget):
     def mouseMoveEvent(self, event):
         loc = np.array([event.pos().x(),event.pos().y()])
         self.camera_.UpdateEvent(loc)
+        R = self.camera_.calRotation(loc - self.pos_)
+        self.scene_.shapes_[0].rotate(R)
         if self.camera_.status_ != 'rest':
             self.update()
+        self.pos_ = loc
 
     def mousePressEvent(self, event):
         self.setFocus()

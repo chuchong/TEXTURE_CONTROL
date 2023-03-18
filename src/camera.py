@@ -22,6 +22,26 @@ class Camera:
         self.status_ = 'rest'
         self.pos_ = np.array([0,0])
 
+    def calRotation(self, vec):
+        angleY = vec[0] * np.pi / self.intrinsic_['w'] * 2
+        angleX = vec[1] * np.pi / self.intrinsic_['h'] * 2
+
+        rotX = np.array([
+            [1, 0, 0, 0],
+            [0, np.cos(angleX), -np.sin(angleX), 0,],
+            [0, np.sin(angleX), np.cos(angleX), 0,],
+            [0, 0, 0, 1]
+            ], dtype='float32')
+
+        rotY = np.array([
+            [np.cos(angleY), 0, -np.sin(angleY), 0,],
+            [0, 1, 0, 0],
+            [np.sin(angleY), 0, np.cos(angleY), 0,],
+            [0, 0, 0, 1]
+            ], dtype='float32')
+
+        return rotY @ rotX
+
     def ApplyRotation(self, vec):
         angleY = vec[0] * np.pi / self.intrinsic_['w'] * 2
         angleX = vec[1] * np.pi / self.intrinsic_['h'] * 2

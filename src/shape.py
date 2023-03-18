@@ -101,6 +101,14 @@ class Shape:
                     mat2tex[matName] = textureName
         return mat2tex
 
+    def rotate(self, R):
+        for mesh in self.meshes_:
+            print(mesh.V_.shape, R.shape)
+            print(R)
+        for mesh in self.meshes_:
+            mesh.V_ = mesh.V_ @ R[:3,:3]
+            mesh.UpdateRenderData()
+
     def Render(self, program):
         if not self.visible_:
             return
