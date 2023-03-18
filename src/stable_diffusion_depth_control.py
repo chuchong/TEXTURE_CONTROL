@@ -22,15 +22,15 @@ proxies={
 
 proxies= {}
 
-stable_15 = "/data1/lisiyu/.cache/hub/models--runwayml--stable-diffusion-v1-5/snapshots/39593d5650112b4cc580433f6b0435385882d819"
-stable_inpaint = "/data1/lisiyu/.cache/hub/models--stabilityai--stable-diffusion-2-inpainting/snapshots/781cb3e2113c1932245692810716dfd27e355ab6"
-##TODO:infact inpainting is not supported now, according to https://github.com/Mikubill/sd-webui-controlnet/issues/54, https://github.com/lllyasviel/ControlNet/discussions/30
-control_stable = "/data1/lisiyu/.cache/hub/models--fusing--stable-diffusion-v1-5-controlnet-depth/snapshots/347e7ac1196634cde53ba3d7af507b1f877a147c"
+# stable_15 = "/data1/lisiyu/.cache/hub/models--runwayml--stable-diffusion-v1-5/snapshots/39593d5650112b4cc580433f6b0435385882d819"
+# stable_inpaint = "/data1/lisiyu/.cache/hub/models--stabilityai--stable-diffusion-2-inpainting/snapshots/781cb3e2113c1932245692810716dfd27e355ab6"
+# ##TODO:infact inpainting is not supported now, according to https://github.com/Mikubill/sd-webui-controlnet/issues/54, https://github.com/lllyasviel/ControlNet/discussions/30
+# control_stable = "/data1/lisiyu/.cache/hub/models--fusing--stable-diffusion-v1-5-controlnet-depth/snapshots/347e7ac1196634cde53ba3d7af507b1f877a147c"
 
 # if downloaded, you can set it locally as above
-# stable_15 = "runwayml/stable-diffusion-v1-5"
-# stable_inpaint ="runwayml/stable-diffusion-inpainting"
-# control_stable ="fusing/stable-diffusion-v1-5-controlnet-depth"
+stable_15 = "runwayml/stable-diffusion-v1-5"
+stable_inpaint ="runwayml/stable-diffusion-inpainting"
+control_stable ="fusing/stable-diffusion-v1-5-controlnet-depth"
 
 class StableDiffusionControl(nn.Module):
 
@@ -49,6 +49,7 @@ class StableDiffusionControl(nn.Module):
             controlnet_cond=control_depth,
             return_dict=False,
         )
+
 
         down_block_res_samples = [
             down_block_res_sample * controlnet_conditioning_scale
